@@ -65,6 +65,12 @@ code from the ROM header (`IPKE` HeartGold, `IPGE` SoulSilver), use
 (`heartgold.sav`, `soulsilver.sav`) and produce `HeartGold-ssrecomp.apk` or
 `SoulSilver-ssrecomp.apk` for Android.
 
+**SoulSilver is still supported and remains the default.** The setup program,
+`setup.sh` and `run.sh` choose it whenever the ROM is a SoulSilver one, an
+unreadable or unrecognised ROM is built as SoulSilver, and its layout and save
+names are the same files as before. HeartGold is an additional target, not a
+replacement.
+
 `layouts/heartgold-us.json` holds addresses and SHA-1s only, like the SoulSilver
 one. It was derived from the SoulSilver layout (`tools/derive_layout.py`) because
 both games are linked from the same files in the same order and their sections have
@@ -76,11 +82,13 @@ For the authoritative layout, build HeartGold once with the decompilation and ru
     python3 tools/make_layout.py ../pokeheartgold/build/heartgold.us \
         ../pokeheartgold/build/heartgold.us/pokeheartgold.us.nds layouts/heartgold-us.json
 
-Then choose your HeartGold ROM and press **Build**. Building the other game
-replaces `gen/` and recompiles everything (20–40 minutes); saves and settings are
-kept. After a build, check the recompiled code against the interpreter with
-`build/ssrecomp <rom> --lockstep --frames 3000`. The full walkthrough, including
-Windows and Android, is in [docs/HEARTGOLD.md](docs/HEARTGOLD.md).
+Then choose your HeartGold ROM and press **Build**. A build holds one game at a
+time: building the other game replaces `gen/` and recompiles everything (20–40
+minutes), so going back to SoulSilver means pressing Build with the SoulSilver
+ROM. Saves and settings are kept either way. After a build, check the recompiled
+code against the interpreter with `build/ssrecomp <rom> --lockstep --frames 3000`.
+The full walkthrough, including Windows and Android, is in
+[docs/HEARTGOLD.md](docs/HEARTGOLD.md).
 
 ### macOS (experimental)
 
