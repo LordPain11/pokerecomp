@@ -1,4 +1,4 @@
-# hgrecomp
+#Pokemon HeartGold/Soulsilver Recomp
 
 A native build of Pokémon SoulSilver and HeartGold for single-screen devices. The
 game's ARM9 code is statically recompiled to C++ from the `pokeheartgold`
