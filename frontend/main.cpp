@@ -46,6 +46,7 @@
 #include "Savestate.h"
 #include "host.h"
 #include "layout.h"
+#include "game.h"
 #include "ui.h"
 #include "merged.h"
 #include "gpucompose.h"
@@ -1037,6 +1038,8 @@ int main(int argc, char** argv)
 #ifdef __ANDROID__
     // Started from the app icon: the ROM is packed in the APK, the save and the settings
     // go in the app's own storage.
+    std::string androidSaveDir;
+    bool androidSaveByName = false;
     std::vector<std::string> androidArgs;
     std::vector<char*> androidArgv;
     if (argc < 2)
@@ -1053,7 +1056,11 @@ int main(int argc, char** argv)
             freopen("log.txt", "w", stderr);
         setvbuf(stderr, nullptr, _IOLBF, 0);
         setenv("SSR_PERF", "1", 0);
-        androidArgs = { "ssrecomp", "rom.nds", "--save", std::string(dir ? dir : ".") + "/soulsilver.sav", "--fullscreen" };
+        // The save is named after the game in the APK, which is only known once the ROM
+        // has been read; it is filled in below.
+        androidSaveDir = dir ? dir : ".";
+        androidSaveByName = true;
+        androidArgs = { "ssrecomp", "rom.nds", "--fullscreen" };
         for (auto& a : androidArgs) androidArgv.push_back(a.data());
         argc = (int)androidArgv.size();
         argv = androidArgv.data();
@@ -1072,6 +1079,11 @@ int main(int argc, char** argv)
         fprintf(stderr, "cannot read ROM: %s\n", opt.rom.c_str());
         return 1;
     }
+    const GameName game = IdentifyGame(rom.data(), rom.size());
+#ifdef __ANDROID__
+    // One name per game, so building the other game later does not load its save.
+    if (androidSaveByName) opt.save = androidSaveDir + "/" + game.saveName;
+#endif
 
     std::vector<uint8_t> sav = ReadFile(opt.save);
     fprintf(stderr, "ROM %s: %zu bytes; save %s: %zu bytes\n", opt.rom.c_str(), rom.size(), opt.save.c_str(), sav.size());
@@ -1187,7 +1199,7 @@ int main(int argc, char** argv)
         }
         int w, h;
         LayoutNativeSize(layout, w, h);
-        window = SDL_CreateWindow("Pokemon SoulSilver", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        window = SDL_CreateWindow(game.windowTitle, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             w * opt.scale, h * opt.scale,
             SDL_WINDOW_RESIZABLE |
 #ifdef __APPLE__
@@ -3239,7 +3251,7 @@ int main(int argc, char** argv)
         }
         if (menu.open)
         {
-            menu.Draw(canvas, "POKEMON SOULSILVER", cfg.byLabel ? "A: SELECT   B: BACK" : "RIGHT: SELECT   BOTTOM: BACK");
+            menu.Draw(canvas, game.menuTitle, cfg.byLabel ? "A: SELECT   B: BACK" : "RIGHT: SELECT   BOTTOM: BACK");
             overlayUsed = true;
         }
 

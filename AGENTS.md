@@ -6,12 +6,14 @@ is the user documentation; read its "How the recompiled code works" and
 
 ## What this is
 
-A static recompiler for Pokémon SoulSilver (US) built on the melonDS 1.1 core.
-`tools/recomp.py` translates every ARM9 instruction of the game into C++
+A static recompiler for Pokémon SoulSilver and HeartGold (US) built on the melonDS
+1.1 core. `tools/recomp.py` translates every ARM9 instruction of the game into C++
 (`gen/`), which runs inside melonDS in place of its interpreter. The frontend
 (SDL2) shows the game on **one screen**, merging the two DS screens, with a
 widescreen view, 60 fps in-between frames and full controller support.
 Targets: Linux and Windows first, Android second. macOS is community-maintained.
+Each game is built separately: HeartGold and SoulSilver differ in a few compiled
+screens, so `gen/` and the layout file are per game (`tools/games.py`).
 
 ## Rules that must not be broken
 
@@ -36,9 +38,11 @@ Targets: Linux and Windows first, Android second. macOS is community-maintained.
 
 | Path | What |
 |---|---|
-| `tools/recomp.py` | the recompiler: reads the ROM (`--rom`, with `layouts/soulsilver-us.json`) or a decompilation build, writes `gen/rc_*.cpp` |
+| `tools/recomp.py` | the recompiler: reads the ROM (`--rom`, with a layout) or a decompilation build, writes `gen/rc_*.cpp` |
 | `tools/recomp_inline.py` | inline C++ for common instructions, chosen by melonDS handler name; anything else calls the melonDS handler |
 | `tools/apps.py` | writes `gen/apps_table.cpp`: each game application's per-frame function, so the frontend knows which screen (bag, battle, ...) is running |
+| `tools/games.py` | the supported games: cartridge game code, display name, layout, save and APK names |
+| `tools/derive_layout.py` | makes another game's layout from an existing one and its ROM (addresses and SHA-1s only); `make_layout.py` from a build is authoritative |
 | `runtime/recomp_gen.h` | per-instruction macros (fetch, guard, body, post) used by `gen/` |
 | `runtime/recomp_rt.cpp` | chunk lookup, overlay byte checks, interpreter fallback |
 | `runtime/recomp_mem.cpp` | out-of-line fast memory and jump helpers (out of line on purpose: inlining was slower) |
@@ -54,7 +58,7 @@ Targets: Linux and Windows first, Android second. macOS is community-maintained.
 | `setup.sh`, `run.sh` | building from the decompilation; starting the game (writes `game.log`) |
 | `tools/package_setup.py`, `make_appimage.sh` | packaging the setup program with PyInstaller |
 | `tools/android/` | APK packing around SDL's Java code |
-| `layouts/soulsilver-us.json` | section addresses and code/data map, so a plain ROM can be recompiled without the decompilation |
+| `layouts/soulsilver-us.json`, `layouts/heartgold-us.json` | section addresses and code/data map, so a plain ROM can be recompiled without the decompilation |
 
 ## Building
 
@@ -64,8 +68,8 @@ Needs CMake, Ninja, a C++17 compiler, SDL2, libpng, zlib, Python 3 (plus
 
 From a ROM (what the setup program does):
 
-    python3 tools/recomp.py --rom <rom.nds> --layout layouts/soulsilver-us.json melonDS/src gen
-    python3 tools/apps.py --layout layouts/soulsilver-us.json gen
+    python3 tools/recomp.py --rom <rom.nds> --layout layouts/heartgold-us.json melonDS/src gen
+    python3 tools/apps.py --layout layouts/heartgold-us.json gen
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
     ninja -C build
 

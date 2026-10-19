@@ -6,6 +6,8 @@
 #   ./setup.sh                 do everything (asks before installing packages)
 #   ./setup.sh --deps          install the required packages without asking (uses sudo)
 #   ./setup.sh --decomp DIR    use an existing pokeheartgold checkout instead of ../pokeheartgold
+#   ./setup.sh --game NAME     heartgold or soulsilver (default: soulsilver, or the
+#                              game of --rom when that is given)
 #   ./setup.sh --rom FILE      also check FILE (a dump of your own cartridge) against the build
 #   ./setup.sh --jobs N        compile with N parallel jobs (default: from CPU count and RAM)
 #   ./setup.sh --desktop       add a menu entry for the game
@@ -25,16 +27,17 @@ DUMP=""
 JOBS=""
 AUTO_DEPS=0
 DESKTOP=0
-SHA1_SS="f8dc38ea20c17541a43b58c5e6d18c1732c7e582"   # Pokemon SoulSilver (USA)
+GAME=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --deps) AUTO_DEPS=1 ;;
         --decomp) DECOMP="$2"; shift ;;
+        --game) GAME="$2"; shift ;;
         --rom) DUMP="$2"; shift ;;
         --jobs) JOBS="$2"; shift ;;
         --desktop) DESKTOP=1 ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "unknown option: $1 (see ./setup.sh --help)" >&2; exit 1 ;;
     esac
     shift
@@ -42,6 +45,27 @@ done
 
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# The game named by the dump decides which decompilation target to build, so
+# `--rom` alone is enough. The game code is at offset 0x0C of the cartridge header.
+if [ -z "$GAME" ] && [ -n "$DUMP" ]; then
+    case "$(dd if="$DUMP" bs=1 skip=12 count=4 2>/dev/null)" in
+        IPKE) GAME=heartgold ;;
+        IPGE) GAME=soulsilver ;;
+    esac
+fi
+GAME="${GAME:-soulsilver}"
+case "$GAME" in
+    heartgold)
+        GAME_NAME="HeartGold"
+        SHA1_GAME="4fcded0e2713dc03929845de631d0932ea2b5a37"   # Pokemon HeartGold (USA)
+        ;;
+    soulsilver)
+        GAME_NAME="SoulSilver"
+        SHA1_GAME="f8dc38ea20c17541a43b58c5e6d18c1732c7e582"   # Pokemon SoulSilver (USA)
+        ;;
+    *) die "unknown game '$GAME' (use heartgold or soulsilver)" ;;
+esac
 
 # ---------------------------------------------------------------------------
 say "Checking the tools and libraries"
@@ -98,29 +122,31 @@ fi
 DECOMP="$(cd "$DECOMP" && pwd)"
 
 # ---------------------------------------------------------------------------
-say "Building SoulSilver from the decompilation (the first time takes a while)"
+say "Building $GAME_NAME from the decompilation (the first time takes a while)"
 
-make -C "$DECOMP" soulsilver -j"$(nproc)"
-BUILD_DIR="$DECOMP/build/soulsilver.us"
-ROM="$BUILD_DIR/pokesoulsilver.us.nds"
+make -C "$DECOMP" "$GAME" -j"$(nproc)"
+BUILD_DIR="$DECOMP/build/$GAME.us"
+ROM="$BUILD_DIR/poke$GAME.us.nds"
 [ -f "$ROM" ] || die "The decompilation build did not produce $ROM"
 
 sum="$(sha1sum "$ROM" | cut -d' ' -f1)"
-if [ "$sum" != "$SHA1_SS" ]; then
-    die "The built ROM ($sum) is not identical to the retail game ($SHA1_SS).
+if [ "$sum" != "$SHA1_GAME" ]; then
+    die "The built ROM ($sum) is not identical to the retail game ($SHA1_GAME).
 The recompiled code would not match it. Check the decompilation build (its INSTALL.md)."
 fi
 echo "Built ROM matches the retail cartridge."
 
 if [ -n "$DUMP" ]; then
     dsum="$(sha1sum "$DUMP" | cut -d' ' -f1)"
-    [ "$dsum" = "$SHA1_SS" ] || die "$DUMP is not Pokemon SoulSilver (USA): SHA-1 $dsum, expected $SHA1_SS"
+    [ "$dsum" = "$SHA1_GAME" ] || die "$DUMP is not Pokemon $GAME_NAME (USA): SHA-1 $dsum, expected $SHA1_GAME"
     echo "Your dump $DUMP is the same game."
 fi
 
 # ---------------------------------------------------------------------------
 say "Generating the recompiled code (gen/: the game's code, keep it to yourself)"
 
+# The build directory carries the symbols, so this route needs no layout file. The
+# setup program's ROM route does: layouts/$GAME-us.json, made by tools/make_layout.py.
 python3 tools/recomp.py "$BUILD_DIR" melonDS/src gen
 python3 tools/apps.py "$BUILD_DIR" gen
 
@@ -146,13 +172,13 @@ if [ $DESKTOP -eq 1 ]; then
     cat > "$HOME/.local/share/applications/ssrecomp.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=SoulSilver (ssrecomp)
+Name=$GAME_NAME (ssrecomp)
 Exec="$HERE/run.sh" --fullscreen
 Path=$HERE
 Terminal=false
 Categories=Game;
 EOF
-    echo "Added a menu entry: SoulSilver (ssrecomp)"
+    echo "Added a menu entry: $GAME_NAME (ssrecomp)"
 fi
 
 say "Done"

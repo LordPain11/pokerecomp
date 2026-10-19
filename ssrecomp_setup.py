@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""ssrecomp setup: builds the game from your own copy of Pokemon SoulSilver (US).
+"""ssrecomp setup: builds the game from your own copy of Pokemon HeartGold or
+SoulSilver (US).
 
 Pick your ROM, press Build, and play. The ROM's code is recompiled to C++ on your
 machine (nothing of the game is downloaded or shipped) and compiled together with
@@ -48,16 +49,45 @@ elif FROZEN:
         HERE = os.path.join(os.environ.get('XDG_DATA_HOME', os.path.expanduser('~/.local/share')), 'ssrecomp')
 else:
     HERE = os.path.dirname(os.path.abspath(__file__))
-LAYOUT = os.path.join(HERE, 'layouts', 'soulsilver-us.json')
+# Which game a ROM is, and its layout, save and APK names: see tools/games.py.
+# Imported lazily because a packaged program unpacks tools/ into HERE when it
+# starts, which happens after this module is read.
+def game_tools():
+    sys.path.insert(0, os.path.join(HERE, 'tools'))
+    import games
+    return games
+
+
+def game_for(rom):
+    """The game of this ROM. An unreadable or unrecognised one is built as SoulSilver,
+    as before: the recompiler checks every section against the layout and reports a
+    different game's code itself."""
+    tools = game_tools()
+    return tools.for_rom(rom) or tools.SOULSILVER
+
+
+def layout_path(game):
+    """The game's layout inside the project. A packaged program unpacks layouts/ into
+    HERE; when HERE has none (a test harness moving it, or an old unpacked copy) the
+    source folder this module came from is used instead."""
+    path = game_tools().layout_path(HERE, game)
+    if os.path.exists(path):
+        return path
+    return game_tools().layout_path(os.path.dirname(os.path.abspath(__file__)), game)
+
+
+def apk_path(game):
+    return os.path.join(HERE, game.apk)
+
+
 GEN = os.path.join(HERE, 'gen')
 BUILD = os.path.join(HERE, 'build-macos-' + MAC_ARCH if DARWIN else 'build')
 EXE = os.path.join(BUILD, 'ssrecomp.exe' if WINDOWS else 'ssrecomp')
 ROM_NOTE = os.path.join(HERE, 'ssrecomp.rom')
 
 # The Android build: Google's NDK (compilers for Android) and SDL2's source are downloaded
-# into ANDROID_DIR the first time; the result is the APK at ANDROID_APK.
+# into ANDROID_DIR the first time; the result is the APK apk_path() names.
 ANDROID_DIR = os.path.join(HERE, 'android')
-ANDROID_APK = os.path.join(HERE, 'SoulSilver-ssrecomp.apk')
 ANDROID_ABI = 'arm64-v8a'          # phones and handhelds from the last ten years
 ANDROID_PLATFORM = 'android-24'    # Android 7.0 and later
 NDK_NAME = 'android-ndk-r27c'
@@ -194,17 +224,30 @@ def windows_prefix():
 
 
 def check_rom(path):
-    """Returns None if this is the right game, otherwise what is wrong with it."""
+    """(game, problem): game is the supported game this ROM is, or None; problem is
+    None when its code is exactly what that game's layout was made from, otherwise
+    what is wrong with it (a different dump can still hold identical code)."""
     if not os.path.isfile(path):
-        return 'That file does not exist.'
-    layout = json.load(open(LAYOUT))
-    digest = hashlib.sha1(open(path, 'rb').read()).hexdigest()
+        return None, 'That file does not exist.'
+    tools = game_tools()
+    game = tools.for_rom(path)
+    if game is None:
+        serial = tools.rom_serial(path)
+        return None, ('This is not Pokemon HeartGold or SoulSilver (US) (game code %r).'
+                      % serial)
+    layout_file = layout_path(game)
+    if not os.path.exists(layout_file):
+        return game, ('Pokemon %s needs layouts/%s, which holds addresses only. Make it once '
+                      'from a build of that game (see the README, "HeartGold").'
+                      % (game.name, game.layout))
+    layout = json.load(open(layout_file))
+    digest = tools.rom_sha1(path)
     if digest == layout['rom_sha1']:
-        return None
+        return game, None
     # A dump with a different header or padding can still hold the same code; the
     # recompiler checks every code section, so let it decide.
-    return ('This is not the exact ROM the layout was made for (SHA-1 %s, expected %s). '
-            'It will still be used if its code is identical.' % (digest, layout['rom_sha1']))
+    return game, ('This is not the exact ROM the layout was made for (SHA-1 %s, expected %s). '
+                  'It will still be used if its code is identical.' % (digest, layout['rom_sha1']))
 
 
 def missing_tools():
@@ -417,6 +460,17 @@ def run_steps(rom, jobs, log, progress, android=False):
         raise RuntimeError(ANDROID_MAC_NOTE)
     if jobs < 1:
         raise RuntimeError('Parallel compile jobs must be at least 1.')
+    game = game_for(rom)
+    layout_file = layout_path(game)
+    if not os.path.exists(layout_file):
+        raise RuntimeError(
+            'Pokemon %s needs layouts/%s, which holds addresses and SHA-1s only, no game data. '
+            'Make it once from a build of that game, with the same build directory and ROM that '
+            'make_layout.py documents:\n'
+            '  python3 tools/make_layout.py <pokeheartgold>/build/%s.us '
+            '<pokeheartgold>/build/%s.us/poke%s.us.nds layouts/%s\n'
+            'See the README, "HeartGold".'
+            % (game.name, game.layout, game.key, game.key, game.key, game.layout))
     os.makedirs(HERE, exist_ok=True)
 
     def run(cmd, parse_ninja=False):
@@ -470,10 +524,10 @@ def run_steps(rom, jobs, log, progress, android=False):
             sys.argv = saved
 
     progress(0.0, 'Checking your ROM and recompiling its code')
-    tool('recomp.py', '--rom', rom, '--layout', LAYOUT, os.path.join(HERE, 'melonDS', 'src'), GEN)
-    tool('apps.py', '--layout', LAYOUT, GEN)
+    tool('recomp.py', '--rom', rom, '--layout', layout_file, os.path.join(HERE, 'melonDS', 'src'), GEN)
+    tool('apps.py', '--layout', layout_file, GEN)
     if android:
-        return android_steps(rom, jobs, log, progress, run)
+        return android_steps(rom, jobs, log, progress, run, game)
     progress(0.08, 'Configuring the build')
     forget_moved_build(BUILD)
     prefix = windows_prefix()
@@ -497,8 +551,9 @@ def run_steps(rom, jobs, log, progress, android=False):
     progress(1.0, 'Done')
 
 
-def android_steps(rom, jobs, log, progress, run):
+def android_steps(rom, jobs, log, progress, run, game):
     import tarfile
+    out_apk = apk_path(game)
     ndk = android_ndk(log, progress)
     toolchain = os.path.join(ndk, 'build', 'cmake', 'android.toolchain.cmake').replace('\\', '/')
     android_args = ['-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_TOOLCHAIN_FILE=' + toolchain,
@@ -534,28 +589,33 @@ def android_steps(rom, jobs, log, progress, run):
     sys.path.insert(0, os.path.join(HERE, 'tools', 'android'))
     import apk
     apk.build(os.path.join(HERE, 'tools', 'android', 'skeleton.apk'), ANDROID_ABI, os.path.join(build, 'libmain.so'),
-              sdl_lib, rom, os.path.join(ANDROID_DIR, 'signing-key.json'), ANDROID_APK)
+              sdl_lib, rom, os.path.join(ANDROID_DIR, 'signing-key.json'), out_apk)
     write_rom_note(rom)
-    log('Made ' + ANDROID_APK)
-    progress(1.0, 'Done: ' + ANDROID_APK)
+    log('Made ' + out_apk)
+    progress(1.0, 'Done: ' + out_apk)
 
 
-ANDROID_HELP = (
-    'Made ' + ANDROID_APK + '\n\n'
-    'To install it: copy it to your phone or handheld (USB cable, cloud drive...), open it there '
-    'and allow your file manager to install apps when asked. It holds your copy of the game: '
-    'do not share it.\n\n'
-    'Updates install over it as long as they are built on this computer (with the key in ' +
-    os.path.join(ANDROID_DIR, 'signing-key.json') + '). Uninstalling the app deletes its save.')
+def android_help(game):
+    apk = apk_path(game)
+    return (
+        'Made ' + apk + '\n\n'
+        'To install it: copy it to your phone or handheld (USB cable, cloud drive...), open it there '
+        'and allow your file manager to install apps when asked. It holds your copy of the game: '
+        'do not share it.\n\n'
+        'Updates install over it as long as they are built on this computer (with the key in ' +
+        os.path.join(ANDROID_DIR, 'signing-key.json') + '). Uninstalling the app deletes its save.')
 
 
 def play(extra=()):
     rom = read_rom_note()
+    # HeartGold and SoulSilver keep separate saves, so switching games never
+    # overwrites the other game's progress.
+    game = game_for(rom)
     # Started from here there is no terminal to see them in (and none at all on Windows):
     # the game's messages go to game.log, made new each time, for bug reports (beside the
     # build log, build.log).
     with open(os.path.join(HERE, 'game.log'), 'w') as log:
-        return subprocess.Popen([EXE, rom, '--save', os.path.join(HERE, 'soulsilver.sav'),
+        return subprocess.Popen([EXE, rom, '--save', os.path.join(HERE, game.save),
                                  '--config', os.path.join(HERE, 'ssrecomp.cfg'), *extra], cwd=HERE,
                                 stdout=log, stderr=subprocess.STDOUT, env=child_env())
 
@@ -703,10 +763,10 @@ def gui():
 
     frame = ttk.Frame(root, padding=16)
     frame.pack(fill='both', expand=True)
-    ttk.Label(frame, text='SoulSilver for one screen', font=('TkDefaultFont', 16, 'bold')).pack(anchor='w')
+    ttk.Label(frame, text='HeartGold and SoulSilver for one screen', font=('TkDefaultFont', 16, 'bold')).pack(anchor='w')
     ttk.Label(frame, wraplength=600, justify='left', text=(
-        'Builds the game from your own copy of Pokemon SoulSilver (US). Its code is recompiled on this '
-        'computer; nothing of the game is downloaded.' +
+        'Builds the game from your own copy of Pokemon HeartGold or SoulSilver (US). Its code is '
+        'recompiled on this computer; nothing of the game is downloaded.' +
         (f' The game is built in {HERE}.' if FROZEN else ''))).pack(anchor='w', pady=(4, 4))
 
     update_row = ttk.Frame(frame)
@@ -753,7 +813,7 @@ def gui():
     ttk.Entry(row, textvariable=rom_var).pack(side='left', fill='x', expand=True, padx=6)
 
     def browse():
-        path = filedialog.askopenfilename(title='Your Pokemon SoulSilver ROM',
+        path = filedialog.askopenfilename(title='Your Pokemon HeartGold or SoulSilver ROM',
                                           filetypes=[('Nintendo DS ROM', '*.nds'), ('All files', '*')])
         if path:
             rom_var.set(path)
@@ -807,11 +867,12 @@ def gui():
     def update_checks():
         lines = []
         rom = rom_var.get().strip()
+        game = None
         if rom:
-            problem = check_rom(rom)
-            lines.append('ROM: ' + ('Pokemon SoulSilver (US), correct.' if problem is None else problem))
+            game, problem = check_rom(rom)
+            lines.append('ROM: ' + (('Pokemon %s (US), correct.' % game.name) if problem is None else problem))
         else:
-            lines.append('ROM: choose your Pokemon SoulSilver (US) ROM.')
+            lines.append('ROM: choose your Pokemon HeartGold or SoulSilver (US) ROM.')
         missing = missing_tools()
         if missing:
             lines.append('Missing to compile: ' + ', '.join(missing) + '.\nTo install them:\n' + install_hint())
@@ -828,10 +889,14 @@ def gui():
             copy_btn.pack(anchor='w', after=checks, pady=(0, 8))
         else:
             copy_btn.pack_forget()
-        ready = bool(rom) and os.path.isfile(rom) and not missing
+        # Build only when the game's layout is present: HeartGold needs one made
+        # from its own build, and the recompiler cannot run without it.
+        layout_ready = game is not None and os.path.exists(layout_path(game))
+        ready = bool(rom) and os.path.isfile(rom) and not missing and layout_ready
         build_btn.state(['!disabled'] if ready else ['disabled'])
         # Android needs only CMake and Ninja here: its compiler and libraries are downloaded.
-        android_ready = not DARWIN and bool(rom) and os.path.isfile(rom) and shutil.which('cmake') and shutil.which('ninja')
+        android_ready = (not DARWIN and bool(rom) and os.path.isfile(rom) and
+                         shutil.which('cmake') and shutil.which('ninja') and layout_ready)
         android_btn.state(['!disabled'] if android_ready else ['disabled'])
         built = os.path.exists(EXE) and os.path.exists(ROM_NOTE)
         for b in (play_btn, windowed_btn):
@@ -906,7 +971,7 @@ def gui():
                         status.config(text='Failed')
                         messagebox.showerror('Build failed', ev[1])
                     elif ev[2]:
-                        messagebox.showinfo('Android build ready', ANDROID_HELP)
+                        messagebox.showinfo('Android build ready', android_help(game_for(rom_var.get().strip())))
                     else:
                         messagebox.showinfo('Ready', 'The game is built. Press Play to start it.')
         except queue.Empty:
@@ -947,7 +1012,7 @@ def main():
     if '--rom' in args:
         rom = args[args.index('--rom') + 1]
         jobs = int(args[args.index('--jobs') + 1]) if '--jobs' in args else default_jobs()
-        problem = check_rom(rom)
+        game, problem = check_rom(rom)
         if problem:
             print(problem)
         android = '--android' in args
@@ -968,7 +1033,7 @@ def main():
         except RuntimeError as e:
             sys.exit(str(e))
         if android:
-            print(ANDROID_HELP)
+            print(android_help(game or game_for(rom)))
             return
         print('Built. Start the game by running this program again (without --rom) and pressing Play' +
               ('.' if FROZEN else ', or with ./run.sh --fullscreen.'))

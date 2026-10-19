@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **HeartGold (US) as well as SoulSilver.** The setup program, `run.sh` and the
+  game read the game code from the ROM header, choose the matching layout
+  (`layouts/heartgold-us.json` or `layouts/soulsilver-us.json`) and keep separate
+  saves; the window title and pause menu say the right game, and Android gets
+  `HeartGold-ssrecomp.apk`. HeartGold and SoulSilver builds replace each other
+  (`gen/` holds one game at a time). The HeartGold layout is included; it was
+  derived from the SoulSilver one, which `tools/derive_layout.py` rechecks, and
+  `tools/make_layout.py` makes the authoritative one from a HeartGold build. See
+  `docs/HEARTGOLD.md`.
+
 ## v0.4.2 — Faster widescreen
 
 **Downloads:** the same setup programs as before; update from the setup window

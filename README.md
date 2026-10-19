@@ -1,10 +1,10 @@
 # ssrecomp
 
-A native build of Pokémon SoulSilver for single-screen devices. The game's ARM9
-code is statically recompiled to C++ from the `pokeheartgold` decompilation's
-build output; the melonDS core (GPLv3, vendored in `melonDS/` at tag 1.1 with a
-few patches) provides the DS hardware: graphics, sound, cartridge, save memory
-and the ARM7.
+A native build of Pokémon SoulSilver and HeartGold for single-screen devices. The
+game's ARM9 code is statically recompiled to C++ from the `pokeheartgold`
+decompilation's build output; the melonDS core (GPLv3, vendored in `melonDS/` at tag
+1.1 with a few patches) provides the DS hardware: graphics, sound, cartridge, save
+memory and the ARM7. Each game gets its own build, from its own ROM.
 
 **Made with heavy use of AI.** Nearly all of the code, documentation and
 testing in this project was done by an AI coding assistant (Anthropic's Claude,
@@ -15,9 +15,9 @@ reusing it.
 **This repository contains no game code or data.** It holds the recompiler,
 the runtime and the frontend. The game-specific part (`gen/`) is generated on
 your own machine from your own build of
-[pret/pokeheartgold](https://github.com/pret/pokeheartgold), which in turn needs
-your own copy of the game; see "Building". Do not commit `gen/`, ROMs, saves or
-save states to this repository.
+[pret/pokeheartgold](https://github.com/pret/pokeheartgold) (`make soulsilver` or
+`make heartgold`), which in turn needs your own copy of the game; see "Building".
+Do not commit `gen/`, ROMs, saves or save states to this repository.
 
 Not affiliated with or endorsed by Nintendo, Game Freak, The Pokémon Company,
 pret or the melonDS project. Pokémon is a trademark of its owners. Because it is
@@ -36,8 +36,9 @@ buttons laid out along the bottom in battle (one screen, played with a controlle
 
 ## Quick start
 
-You need your own copy of Pokémon SoulSilver (US) as a `.nds` file, dumped from
-your cartridge. Nothing of the game is in this repository or its releases.
+You need your own copy of Pokémon SoulSilver or HeartGold (US) as a `.nds` file,
+dumped from your cartridge. Nothing of the game is in this repository or its
+releases.
 
 1. Download the setup program for your system from the
    [latest release](../../releases/latest):
@@ -47,9 +48,39 @@ your cartridge. Nothing of the game is in this repository or its releases.
    - Windows: `ssrecomp-setup-windows-x86_64.exe`
 
    On Linux, make it executable (`chmod +x <file>`, or the file's properties).
+   The released setup programs build SoulSilver; for HeartGold build from this
+   repository (see "HeartGold" below).
 2. Start it.
 3. Choose your ROM, press **Build**, wait (the first build takes 20–40 minutes),
    then press **Play**.
+
+### HeartGold
+
+HeartGold and SoulSilver share one engine and almost all of their code, but a few
+screens (title screen, credits, Pokédex, intro, naming screen, Rock Smash tables)
+are compiled differently, so each game gets its own layout file and its own
+recompiled build. The setup program, `run.sh` and the game itself read the game
+code from the ROM header (`IPKE` HeartGold, `IPGE` SoulSilver), use
+`layouts/heartgold-us.json` or `layouts/soulsilver-us.json`, keep separate saves
+(`heartgold.sav`, `soulsilver.sav`) and produce `HeartGold-ssrecomp.apk` or
+`SoulSilver-ssrecomp.apk` for Android.
+
+`layouts/heartgold-us.json` holds addresses and SHA-1s only, like the SoulSilver
+one. It was derived from the SoulSilver layout (`tools/derive_layout.py`) because
+both games are linked from the same files in the same order and their sections have
+the same sizes; one overlay ends with 32 bytes more data, after all of its code.
+For the authoritative layout, build HeartGold once with the decompilation and run
+`tools/make_layout.py`:
+
+    make -C ../pokeheartgold heartgold
+    python3 tools/make_layout.py ../pokeheartgold/build/heartgold.us \
+        ../pokeheartgold/build/heartgold.us/pokeheartgold.us.nds layouts/heartgold-us.json
+
+Then choose your HeartGold ROM and press **Build**. Building the other game
+replaces `gen/` and recompiles everything (20–40 minutes); saves and settings are
+kept. After a build, check the recompiled code against the interpreter with
+`build/ssrecomp <rom> --lockstep --frames 3000`. The full walkthrough, including
+Windows and Android, is in [docs/HEARTGOLD.md](docs/HEARTGOLD.md).
 
 ### macOS (experimental)
 
@@ -92,8 +123,9 @@ ROM, and installed on the phone or handheld (64-bit ARM, Android 7.0 or later):
    needs only CMake and Ninja on the PC (see below); the first time it downloads
    Google's Android NDK (about 650 MB on Linux, 750 MB on Windows) and SDL2.
    The build takes about as long as the PC one.
-2. Copy `SoulSilver-ssrecomp.apk` (in the setup program's folder) to the
-   device, open it there and allow installing it when asked.
+2. Copy `SoulSilver-ssrecomp.apk` (or `HeartGold-ssrecomp.apk`) from the setup
+   program's folder to the device, open it there and allow installing it when
+   asked. Each game has its own APK and its own save.
 
 The APK contains your copy of the game: never share it. It is signed with a key
 kept next to it (`android/signing-key.json`); builds made later with the same
@@ -178,8 +210,9 @@ for direct CMake builds. The setup workflow uses 11.0.
 How it works without the decompilation: the code to recompile is read straight
 from your ROM (`tools/ndsrom.py`). What the decompilation adds, which parts of
 it are ARM or Thumb code and where the functions the frontend watches are, comes
-from `layouts/soulsilver-us.json`, made with `tools/make_layout.py`; that file
-holds addresses and checksums only. The generated code is identical to what the
+from the game's layout (`layouts/soulsilver-us.json` or
+`layouts/heartgold-us.json`), made with `tools/make_layout.py`; those files hold
+addresses and checksums only. The generated code is identical to what the
 decompilation's build gives.
 
 If you want to change the game itself, build from the decompilation instead
@@ -191,9 +224,11 @@ with `./setup.sh` (see "Building").
     ./run.sh --fullscreen
 
 First build it: see "Building" below. `run.sh` expects the ROM at
-`../pokeheartgold/build/soulsilver.us/pokesoulsilver.us.nds`, i.e. the
-decompilation checked out next to this repository and built. The save file is `soulsilver.sav` next to the script; settings
-are remembered in `ssrecomp.cfg`.
+`../pokeheartgold/build/soulsilver.us/pokesoulsilver.us.nds` (or
+`build/heartgold.us/pokeheartgold.us.nds`), i.e. the decompilation checked out
+next to this repository and built. `ssrecomp.rom`, written by setup, overrides
+that. The save file is `soulsilver.sav` or `heartgold.sav` next to the script;
+settings are remembered in `ssrecomp.cfg`.
 
 Everything can be done from a controller:
 
@@ -412,8 +447,8 @@ Expect about half an hour for a first build.
 
 ### What you need
 
-- **The game.** Only build this if you own Pokémon SoulSilver (US). The
-  decompilation below rebuilds the game from its source; the result has to be
+- **The game.** Only build this if you own Pokémon SoulSilver or HeartGold (US).
+  The decompilation below rebuilds the game from its source; the result has to be
   byte-for-byte identical to the retail cartridge, which you can check against a
   dump of your own copy (SHA-1 below).
 - **About 3 GB of free disk space and 16 GB of RAM.** The generated code is
@@ -445,29 +480,33 @@ by hand or something goes wrong.
        git clone https://github.com/pret/pokeheartgold.git
        git clone <this repository's URL> ssrecomp
 
-2. **Build SoulSilver with the decompilation** (in `pokeheartgold/`):
+2. **Build the game with the decompilation** (in `pokeheartgold/`):
 
        cd pokeheartgold
-       make soulsilver
+       make soulsilver        # or: make heartgold
 
-   This produces `build/soulsilver.us/pokesoulsilver.us.nds` plus the files the
-   recompiler reads (the linked `.nef` and one `.sbin` per code section). Check
-   the ROM is a faithful build:
+   This produces `build/soulsilver.us/pokesoulsilver.us.nds` (or
+   `build/heartgold.us/pokeheartgold.us.nds`) plus the files the recompiler reads
+   (the linked `.nef` and one `.sbin` per code section). Check the ROM is a
+   faithful build:
 
        sha1sum build/soulsilver.us/pokesoulsilver.us.nds
        # f8dc38ea20c17541a43b58c5e6d18c1732c7e582
+       sha1sum build/heartgold.us/pokeheartgold.us.nds
+       # 4fcded0e2713dc03929845de631d0932ea2b5a37
 
    If it differs, fix the decompilation build first (see its INSTALL.md); the
    recompiled code would not match the ROM.
 
 3. **Generate the recompiled code** (in `ssrecomp/`). This writes `gen/`, which
    is the game's code translated to C++: keep it to yourself, never commit or
-   share it.
+   share it. Use the build directory of the game you built:
 
        cd ../ssrecomp
        python3 tools/recomp.py ../pokeheartgold/build/soulsilver.us melonDS/src gen
        python3 tools/apps.py ../pokeheartgold/build/soulsilver.us gen
 
+   For HeartGold, replace `soulsilver.us` with `heartgold.us` in both commands.
    The first prints something like `121 sections, 25118 chunks, 1685104
    instructions, 71 files`.
 
@@ -486,9 +525,9 @@ by hand or something goes wrong.
        ./run.sh --fullscreen
 
    `run.sh` starts `build/ssrecomp` with the ROM from step 2 and keeps the save
-   in `soulsilver.sav` next to the script. The ROM built in step 2 is identical
-   to the cartridge, so `build/ssrecomp <your own dump>.nds --save my.sav` works
-   too, as long as it is the same US SoulSilver ROM.
+   in `soulsilver.sav` or `heartgold.sav` next to the script. The ROM built in
+   step 2 is identical to the cartridge, so `build/ssrecomp <your own dump>.nds
+   --save my.sav` works too, as long as it is the same US ROM of that game.
 
 ### Later
 

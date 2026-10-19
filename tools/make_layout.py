@@ -4,6 +4,12 @@ instead of from the decompilation's build (see tools/recomp.py --rom).
 
 usage: make_layout.py <build dir> <built ROM> <layout file>
 
+Build SoulSilver with `make soulsilver` in pokeheartgold and pass its
+`build/soulsilver.us` and `pokesoulsilver.us.nds`, or build HeartGold with
+`make heartgold` and pass `build/heartgold.us` and `pokeheartgold.us.nds`. The
+game and its save file name are read from the ROM's header, so the same command
+makes either layout.
+
 The layout holds, for every code section: its name, load address, where in the ROM
 its bytes come from, a SHA-1 of them (to check a player's ROM), which address ranges
 are ARM or Thumb code, and the addresses of named symbols; plus the addresses of the
@@ -18,6 +24,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import games
 from ndsrom import read_rom
 from recomp import load_sections
 
@@ -55,8 +62,16 @@ apps = [[m.group(1), m.group(2), int(m.group(3), 16), int(m.group(4), 16), m.gro
         for m in app_row.finditer(apps_part)]
 focus = [[m.group(1), m.group(2), int(m.group(3), 16)] for m in row.finditer(focus_part)]
 
+serial = games.rom_serial(rom_path)
+game = games.for_serial(serial)
+# HeartGold and SoulSilver share this file's shape; the name is for messages and
+# for the setup program, the serial lets it tell the two pieces of code apart.
+name = ('Pokemon %s (USA)' % game.name) if game else 'Pokemon HeartGold/SoulSilver (USA)'
+
 layout = {
-    'game': 'Pokemon SoulSilver (USA)',
+    'game': name,
+    'serial': serial,
+    'save': game.save if game else games.SOULSILVER.save,
     'rom_sha1': hashlib.sha1(open(rom_path, 'rb').read()).hexdigest(),
     'sections': sections,
     'apps': apps,
@@ -64,4 +79,4 @@ layout = {
 }
 with open(out_path, 'w') as f:
     json.dump(layout, f, separators=(',', ':'))
-print(f'{len(sections)} sections, {len(apps)} applications, {len(focus)} watched functions -> {out_path}')
+print(f'{name}: {len(sections)} sections, {len(apps)} applications, {len(focus)} watched functions -> {out_path}')
